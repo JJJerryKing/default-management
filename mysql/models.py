@@ -6,7 +6,7 @@ db = SQLAlchemy()
 class DefaultApplication(db.Model):
     __tablename__ = 'default_application'
     id = db.Column(db.Integer, primary_key=True)
-    customer_id = db.Column(db.Integer, nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.customer_id'), nullable=False)
     audit_status = db.Column(db.SmallInteger, nullable=False)
     severity = db.Column(db.String(50), nullable=False)
     #upload_user = db.Column(db.String(50), nullable=False)
@@ -15,6 +15,9 @@ class DefaultApplication(db.Model):
     audit_data = db.Column(db.DateTime, nullable=True)
     remarks = db.Column(db.Text, nullable=False)
     default_status = db.Column(db.SmallInteger, nullable=False)
+
+    # Define relationship to Customer
+    customer = db.relationship('Customer', backref=db.backref('default_applications', lazy=True))
 
 class Customer(db.Model):
     __tablename__ = 'customer'
@@ -25,14 +28,18 @@ class Customer(db.Model):
     status = db.Column(db.SmallInteger, nullable=False)
     industry_classification = db.Column(db.String(50), nullable=False)
     region_classification = db.Column(db.String(50), nullable=False)
-    credit_rating = db.Column(db.String(50), nullable=False)
-    group = db.Column(db.String(50), nullable=False)
+    credit_rating = db.Column(db.String(50), nullable=True)
+    group = db.Column(db.String(50), nullable=True)
     external_rating = db.Column(db.String(50), nullable=False)
 
 class DefaultRebirth(db.Model):
     __tablename__ = 'default_rebirth'
     id = db.Column(db.Integer, primary_key=True)
-    customer_id = db.Column(db.Integer, nullable=False)
-    default_id = db.Column(db.Integer, nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.customer_id'), nullable=False)
+    default_id = db.Column(db.Integer, db.ForeignKey('default_application.id'), nullable=False)
     audit_status = db.Column(db.SmallInteger, nullable=False)
     remarks = db.Column(db.Text, nullable=False)
+
+    # Define relationships to Customer and DefaultApplication
+    customer = db.relationship('Customer', backref=db.backref('default_rebirths', lazy=True))
+    default_application = db.relationship('DefaultApplication', backref=db.backref('default_rebirths', lazy=True))
