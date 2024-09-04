@@ -5,10 +5,6 @@ from datetime import datetime
 
 main = Blueprint('main', __name__)
 
-@main.route("/hello/")
-def hello():
-    return "helloworld"
-
 #注册
 @main.route('/api/register', methods=['POST'])
 def register():
@@ -139,15 +135,36 @@ def default_applications():
 def review_default_application(id):
     data = request.get_json()
     audit_status = data.get('audit_status')
+
+    if audit_status == 0:
+        return jsonify({'message': '审核发生错误'}), 201
     
     # 查找违约申请记录
     application = DefaultApplication.query.get_or_404(id)
-    
+
     # 更新审核状态
     application.audit_status = audit_status
     application.audit_data = datetime.datetime.now()
     db.session.commit()
-    
+
+    #查找违约用户
+    customer = Customer.query.get(application.customer_id)
+
+   # 判断用户状态
+    if audit_status == 1:
+        #更新用户状态为“冻结”
+        customer.status = 1
+        db.session.commit()
+    elif audit_status == 2:
+        #查找违约用户是否有违约记录
+        existing_defaults = DefaultApplication.query.filter_by(customer_id=application.customer_id, audit_status=1).count()
+        if existing_defaults > 0:
+            #更新用户状态为“冻结”
+            customer.status = 1
+        else:
+            #更新用户状态为“正常”
+            customer.status = 0
+
     return jsonify({'message': '违约认定审核已更新'}), 200
 
 
@@ -156,28 +173,34 @@ def review_default_application(id):
 def search_default_applications():
     customer_name = request.args.get('customer_name')
 
-    # 创建查询
-    query = query.join(DefaultApplication, Customer, DefaultApplication.customer_id == Customer.customer_id)
-
-    # 根据客户名称进行精准匹配
-    if customer_name:
-        query = query.filter(Customer.customer_name == customer_name)
+    if not customer_name:
+        return jsonify({'message': '请输入用户名称'}), 404
     else:
-        return jsonify({'message':'请输入用户名称'}),404
+        # 查找客户是否存在
+        customer_exists = db.session.query(Customer).filter(Customer.customer_name == customer_name).first()
+        if not customer_exists:
+            return jsonify({'message': '无该用户'}), 201
+        else:
+            # 创建查询
+            query = query.join(DefaultApplication, Customer, DefaultApplication.customer_id == Customer.customer_id)
+            #查询有没有违约信息
+            query = query.filter(Customer.customer_name == customer_name)
+            if query.count() == 0:
+                return jsonify({'message': '无违约信息'}), 201
+            else:
+                applications = query.all()
 
-    applications = query.all()
-
-    return jsonify([{
-        'id': app.id,
-        'customer_id': app.customer_id,
-        'audit_status': app.audit_status,
-        'severity': app.severity,
-        'uploaduser_id': app.uploaduser_id,
-        'application_time': app.application_time,
-        'audit_data': app.audit_data,
-        'remarks': app.remarks,
-        'default_status': app.default_status
-    } for app in applications]), 200
+                return jsonify([{
+                    'id': app.id,
+                    'customer_id': app.customer_id,
+                    'audit_status': app.audit_status,
+                    'severity': app.severity,
+                    'uploaduser_id': app.uploaduser_id,
+                    'application_time': app.application_time,
+                    'audit_data': app.audit_data,
+                    'remarks': app.remarks,
+                    'default_status': app.default_status
+                } for app in applications]), 200
 
 # 3.5 违约重生
 @main.route('/default_rebirths', methods=['POST'])
