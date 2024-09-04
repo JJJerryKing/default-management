@@ -9,7 +9,8 @@ class DefaultApplication(db.Model):
     customer_id = db.Column(db.Integer, nullable=False)
     audit_status = db.Column(db.SmallInteger, nullable=False)
     severity = db.Column(db.String(50), nullable=False)
-    upload_user = db.Column(db.String(50), nullable=False)
+    #upload_user = db.Column(db.String(50), nullable=False)
+    uploaduser_id = db.Column(db.Integer, nullable=False)
     application_time = db.Column(db.DateTime, nullable=False)
     audit_data = db.Column(db.DateTime, nullable=True)
     remarks = db.Column(db.Text, nullable=False)
@@ -19,6 +20,8 @@ class Customer(db.Model):
     __tablename__ = 'customer'
     customer_id = db.Column(db.Integer, primary_key=True)
     customer_name = db.Column(db.String(100), nullable=False)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    password = db.Column(db.String(128), nullable=False)
     status = db.Column(db.SmallInteger, nullable=False)
     industry_classification = db.Column(db.String(50), nullable=False)
     region_classification = db.Column(db.String(50), nullable=False)
