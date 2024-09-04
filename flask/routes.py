@@ -5,6 +5,10 @@ from datetime import datetime
 
 main = Blueprint('main', __name__)
 
+@main.route("/hello/")
+def hello():
+    return "helloworld"
+
 #注册
 @main.route('/api/register', methods=['POST'])
 def register():
@@ -15,8 +19,8 @@ def register():
     industry_classification = data.get('industry_classification')
     region_classification = data.get('region_classification')
     credit_rating = data.get('credit_rating')
-    group = db.get('group')
-    external_rating = db.get('external_rating')
+    group = data.get('group')
+    external_rating = data.get('external_rating')
 
     #以下内容必填
     if not customer_name or not username or not password or not industry_classification or not region_classification or not external_rating:
@@ -153,13 +157,13 @@ def search_default_applications():
     customer_name = request.args.get('customer_name')
 
     # 创建查询
-    query = db.session.query(DefaultApplication).join(Customer)
-    
+    query = query.join(DefaultApplication, Customer, DefaultApplication.customer_id == Customer.customer_id)
+
     # 根据客户名称进行精准匹配
     if customer_name:
         query = query.filter(Customer.customer_name == customer_name)
     else:
-        return jsonify({'message':'用户不存在'}),404
+        return jsonify({'message':'请输入用户名称'}),404
 
     applications = query.all()
 
@@ -168,7 +172,7 @@ def search_default_applications():
         'customer_id': app.customer_id,
         'audit_status': app.audit_status,
         'severity': app.severity,
-        'upload_user': app.upload_user,
+        'uploaduser_id': app.uploaduser_id,
         'application_time': app.application_time,
         'audit_data': app.audit_data,
         'remarks': app.remarks,
