@@ -1,4 +1,4 @@
-from flask import Blueprint, request, send_file, jsonify
+from flask import Blueprint, request, send_file, jsonify, Flask, render_template
 from models import db, DefaultApplication,Customer,DefaultRebirth
 import os
 from datetime import datetime
@@ -242,12 +242,42 @@ def review_default_rebirth(id):
 @main.route('/statistics/industry', methods=['GET'])
 def industry_statistics():
     # 查询和计算行业统计数据
-    statistics = []
+    industry_stats = db.session.query(
+        Customer.industry_classification,
+        db.func.count(Customer.customer_id)
+    ).filter(Customer.status == 1) \
+    .group_by(Customer.industry_classification).all()
+
+    statistics = [
+        {
+            'industry': industry,
+            'default_count': count
+        }
+        for industry, count in industry_stats
+    ]
+
     return jsonify(statistics), 200
 
 @main.route('/statistics/region', methods=['GET'])
 def region_statistics():
     # 查询和计算区域统计数据
-    statistics = []
+    region_stats = db.session.query(
+        Customer.region_classification,
+        db.func.count(Customer.customer_id)
+    ).filter(Customer.status == 1) \
+    .group_by(Customer.region_classification).all()
+
+    # Prepare the result
+    statistics = [
+        {
+            'region': region,
+            'default_count': count
+        }
+        for region, count in region_stats
+    ]
+
     return jsonify(statistics), 200
 
+@main.route('/statistics', methods=['GET'])
+def statistics_page():
+    return render_template('statistics.html')
