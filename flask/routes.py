@@ -151,15 +151,16 @@ def review_default_application(id):
 @main.route('/default_applications/search', methods=['GET'])
 def search_default_applications():
     customer_name = request.args.get('customer_name')
-    audit_status = request.args.get('audit_status')
 
-    # 示例查询
-    query = DefaultApplication.query
-    if customer_name:
-        query = query.join(Customer).filter(Customer.customer_name.like(f'%{customer_name}%'))
-    if audit_status:
-        query = query.filter_by(audit_status=audit_status)
+    # 创建查询
+    query = db.session.query(DefaultApplication).join(Customer)
     
+    # 根据客户名称进行精准匹配
+    if customer_name:
+        query = query.filter(Customer.customer_name == customer_name)
+    else:
+        return jsonify({'message':'用户不存在'}),404
+
     applications = query.all()
 
     return jsonify([{
