@@ -1,5 +1,5 @@
 from flask import Blueprint, request, send_file, jsonify, Flask, render_template
-from models import db, DefaultApplication,Customer,DefaultRebirth
+from models import db, DefaultReason,DefaultApplication,Customer,DefaultRebirth
 import os
 from datetime import datetime
 
@@ -48,34 +48,67 @@ def login():
     username = data.get('username')
     password = data.get('password')
 
+    if not username or not password:
+        return jsonify({'code': 400,  'message': 'Missing fields'}), 400
+
     customer = Customer.query.filter_by(username=username).first()
 
     if customer is None or customer.password != password:
-        return jsonify({'message': 'Invalid username or password', 'code': 400}), 400
+        return jsonify({'code': 400, 'message': 'Invalid username or password'}), 400
 
-    return jsonify({'message': 'Login successful', 'code': 200}), 200
+    return jsonify({'code': 200, 'message': 'Login successful'}), 200
 
 
 #3.1违约原因维护
-@main.route('/default_reasons',methods=['GET','POST'])
+@main.route('/default_reasons/',methods=['POST'])
 def manage_default_reasons():
-    if request.method == 'POST':
-        #获取请求中的数据
-        data =request.get_json()
-        reason = data.get('reason')
-        is_enable = data.get('is_enabled')
-        order = data.get('order')
+    #获取请求中的数据
+    data =request.get_json()
+    id = data.get('id')
+    reason = data.get('reason')
+    is_enabled = data.get('is_enabled')
 
-        #数据验证和处理
-        #这里假设有一个DefaultReason模型来存储违约原因数据
-        #添加到数据库并提交
-        #返回响应
-        return jsonify({'message':'违约原因已添加'}), 201
+    if not reason or not is_enabled:
+        return jsonify({'message': '违约原因和是否启用是必填字段'}), 400
+
+    # 如果有id，表示是更新操作
+    if id:
+        # 查找记录
+        default_reason = DefaultReason.query.get(id)
+        if not default_reason:
+            return jsonify({'message': '违约原因记录不存在'}), 404
+        
+        # 更新记录
+        default_reason.reason = reason
+        default_reason.is_enabled = is_enabled
     else:
-        #返回所有违约原因
-        reasons = []
-        return jsonify(reason), 200
+        # 添加新记录
+         # 添加操作，确保不添加重复的原因
+        existing_reason = DefaultReason.query.filter_by(reason=reason).first()
+        if existing_reason:
+            return jsonify({'message': '违约原因已存在'}), 409
+
+
+        default_reason = DefaultReason(
+            reason=reason,
+            is_enabled=is_enabled,
+        )
+        db.session.add(default_reason)
     
+    db.session.commit()
+
+    if id:
+        return jsonify({'message': '违约原因已更新'}), 200
+    else:
+        return jsonify({'message': '违约原因已添加'}), 201
+    
+
+@main.route('/default_reasons/show', methods=['GET'])
+def list_default_reasons():
+    reasons = DefaultReason.query.all()
+    return jsonify([{'id': reason.id, 'reason': reason.reason, 'is_enabled': reason.is_enabled} for reason in reasons]), 200
+
+
 # 3.2 违约认定申请
 @main.route('/default_applications', methods=['GET', 'POST'])
 def default_applications():
