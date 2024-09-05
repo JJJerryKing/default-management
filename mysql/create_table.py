@@ -20,7 +20,7 @@ def create_app():
         db.reflect()
         db.drop_all()
         # Import models here to ensure they are registered with SQLAlchemy
-        from models import DefaultApplication, Customer, DefaultRebirth
+        from models import DefaultReason,DefaultApplication, Customer, DefaultRebirth
         db.create_all()
 
     return app

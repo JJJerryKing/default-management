@@ -3,6 +3,15 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
+class DefaultReason(db.Model):
+    __tablename__ = 'default_reasons'
+
+    id = db.Column(db.Integer, primary_key=True)
+    reason = db.Column(db.String(255), unique=True,nullable=False)
+    is_enabled = db.Column(db.Boolean, nullable=False)
+
+
+        
 class DefaultApplication(db.Model):
     __tablename__ = 'default_application'
     id = db.Column(db.Integer, primary_key=True)

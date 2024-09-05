@@ -60,53 +60,54 @@ def login():
 
 
 #3.1违约原因维护
-@main.route('/default_reasons/',methods=['POST'])
+@main.route('/default_reasons/',methods=['GET','POST'])
 def manage_default_reasons():
-    #获取请求中的数据
-    data =request.get_json()
-    id = data.get('id')
-    reason = data.get('reason')
-    is_enabled = data.get('is_enabled')
+    if request.method == 'POST':
+        #获取请求中的数据
+        data =request.get_json()
+        id = data.get('id')
+        reason = data.get('reason')
+        is_enabled = data.get('is_enabled')
 
-    if not reason or not is_enabled:
-        return jsonify({'message': '违约原因和是否启用是必填字段'}), 400
+        if reason is None or is_enabled is None:
+            return jsonify({'message': '违约原因和是否启用是必填字段'}), 400
 
-    # 如果有id，表示是更新操作
-    if id:
-        # 查找记录
-        default_reason = DefaultReason.query.get(id)
-        if not default_reason:
-            return jsonify({'message': '违约原因记录不存在'}), 404
+        # 如果有id，表示是更新操作
+        if id:
+            # 查找记录
+            default_reason = DefaultReason.query.get(id)
+            if not default_reason:
+                return jsonify({'message': '违约原因记录不存在'}), 404
+            
+            # 更新记录
+            default_reason.reason = reason
+            default_reason.is_enabled = is_enabled
+        else:
+            # 添加新记录
+            # 添加操作，确保不添加重复的原因
+            existing_reason = DefaultReason.query.filter_by(reason=reason).first()
+            if existing_reason:
+                return jsonify({'message': '违约原因已存在'}), 409
+
+
+            default_reason = DefaultReason(
+                reason=reason,
+                is_enabled=is_enabled,
+            )
+            db.session.add(default_reason)
         
-        # 更新记录
-        default_reason.reason = reason
-        default_reason.is_enabled = is_enabled
+        db.session.commit()
+
+        if id:
+            return jsonify({'message': '违约原因已更新'}), 200
+        else:
+            return jsonify({'message': '违约原因已添加'}), 201
     else:
-        # 添加新记录
-         # 添加操作，确保不添加重复的原因
-        existing_reason = DefaultReason.query.filter_by(reason=reason).first()
-        if existing_reason:
-            return jsonify({'message': '违约原因已存在'}), 409
+        reasons = DefaultReason.query.all()
 
-
-        default_reason = DefaultReason(
-            reason=reason,
-            is_enabled=is_enabled,
-        )
-        db.session.add(default_reason)
-    
-    db.session.commit()
-
-    if id:
-        return jsonify({'message': '违约原因已更新'}), 200
-    else:
-        return jsonify({'message': '违约原因已添加'}), 201
-    
-
-@main.route('/default_reasons/show', methods=['GET'])
-def list_default_reasons():
-    reasons = DefaultReason.query.all()
-    return jsonify([{'id': reason.id, 'reason': reason.reason, 'is_enabled': reason.is_enabled} for reason in reasons]), 200
+        if not reasons:  # 如果查询结果为空
+            return jsonify({'message': 'No default reasons found'}), 404
+        return jsonify([{'id': reason.id, 'reason': reason.reason, 'is_enabled': reason.is_enabled} for reason in reasons]), 200
 
 
 # 3.2 违约认定申请
@@ -122,8 +123,8 @@ def default_applications():
 
         # 限制约定
         # 业务逻辑：检查必填项
-        if not customer_id or not remarks:
-            return jsonify({'message': '客户名称和违约原因是必填项'}), 400
+        if not customer_id or not remarks or not severity:
+            return jsonify({'message': '客户ID、违约原因和严重性是必填项'}), 400
         
         # 业务逻辑：检查认定者是否是违约者
         customer = Customer.query.filter_by(customer_id=uploaduser_id).first()
@@ -148,9 +149,10 @@ def default_applications():
 
         return jsonify({'message': '违约认定申请已创建'}), 201
     else:
-        #可有可无
         # 返回所有违约认定申请
         applications = DefaultApplication.query.all()
+        if not applications:  # 如果查询结果为空
+            return jsonify({'message': 'No default reasons found'}), 404
         return jsonify([{
             'id': app.id,
             'customer_id': app.customer_id,
@@ -164,41 +166,85 @@ def default_applications():
         } for app in applications]), 200
 
 # 3.3 违约认定审核
-@main.route('/default_applications/<int:id>/review', methods=['PUT'])
-def review_default_application(id):
-    data = request.get_json()
-    audit_status = data.get('audit_status')
+@main.route('/default_applications/review', methods=['GET','POST'])
+def review_default_application():
+    if request.method == 'POST':
+        data = request.get_json()
+        id = data.get('id')
+        try:
+            audit_status = int(data.get('audit_status'))  # 强制转换为整数
+        except (TypeError, ValueError):
+            return jsonify({'message': '无效的审核状态'}), 400
 
-    if audit_status == 0:
-        return jsonify({'message': '审核发生错误'}), 201
-    
-    # 查找违约申请记录
-    application = DefaultApplication.query.get_or_404(id)
+         # 校验审核状态的有效性
+        if audit_status not in [0, 1, 2]:
+            return jsonify({'message': '无效的审核状态'}), 400
 
-    # 更新审核状态
-    application.audit_status = audit_status
-    application.audit_data = datetime.datetime.now()
-    db.session.commit()
+        # 如果审核状态为 0，表示审核出错
+        if audit_status == 0:
+            return jsonify({'message': '审核发生错误'}), 201
+        
+        # 查找违约申请记录
+        application = DefaultApplication.query.get_or_404(id)
 
-    #查找违约用户
-    customer = Customer.query.get(application.customer_id)
+        try:
+            # 更新审核状态
+            application.audit_status = audit_status
+            application.audit_data = datetime.now()
+            db.session.commit()
 
-   # 判断用户状态
-    if audit_status == 1:
-        #更新用户状态为“冻结”
-        customer.status = 1
-        db.session.commit()
-    elif audit_status == 2:
-        #查找违约用户是否有违约记录
-        existing_defaults = DefaultApplication.query.filter_by(customer_id=application.customer_id, audit_status=1).count()
-        if existing_defaults > 0:
-            #更新用户状态为“冻结”
-            customer.status = 1
-        else:
-            #更新用户状态为“正常”
-            customer.status = 0
+            #查找违约用户
+            customer = Customer.query.get(application.customer_id)
+            if not customer:
+                return jsonify({'message': '未找到相关客户'}), 404
 
-    return jsonify({'message': '违约认定审核已更新'}), 200
+            # 判断用户状态
+            if audit_status == 1:
+                #更新用户状态为“冻结”
+                customer.status = 1
+                db.session.commit()
+            elif audit_status == 2:
+                #查找违约用户是否有违约记录
+                existing_defaults = DefaultApplication.query.filter_by(customer_id=application.customer_id, audit_status=1).count()
+                if existing_defaults > 0:
+                    #更新用户状态为“冻结”
+                    customer.status = 1
+                else:
+                    #更新用户状态为“正常”
+                    customer.status = 0
+        
+            # 提交用户状态更新
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'message': '审核处理失败', 'error': str(e)}), 500
+        
+        return jsonify({'message': '违约认定审核已更新'}), 200
+    else:   # GET 请求，返回未审核的违约申请记录
+        #返回未审核的申请记录
+        try:
+            # 获取所有未审核的违约申请
+            pending_applications = DefaultApplication.query.filter_by(audit_status=0).all()
+            if not pending_applications:
+                return jsonify({'message': '没有待审核的违约申请记录'}), 200
+
+            # 构造返回数据
+            results = [{
+                'id': app.id,
+                'customer_id': app.customer_id,
+                'audit_status': app.audit_status,
+                'severity': app.severity, 
+                'application_time': app.application_time, 
+                'uploaduser_id': app.uploaduser_id,
+                'audit_data':app.audit_data,
+                'remarks': app.remarks,  
+                'default_status': app.default_status 
+            } for app in pending_applications]
+
+
+            return jsonify(results), 200
+        except Exception as e:
+            return jsonify({'message': '获取未审核违约申请记录失败', 'error': str(e)}), 500
 
 
 # 3.4 违约信息查询
