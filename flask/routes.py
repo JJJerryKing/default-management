@@ -18,6 +18,7 @@ def register():
     group = data.get('group')
     external_rating = data.get('external_rating')
 
+    
     #以下内容必填
     if not customer_name or not username or not password or not industry_classification or not region_classification or not external_rating:
         return jsonify({'code': 400, 'message': 'Missing fields'}), 400
@@ -158,7 +159,7 @@ def default_applications():
             'customer_id': app.customer_id,
             'audit_status': app.audit_status,
             'severity': app.severity,
-            'upload_user': app.upload_user,
+            'uploaduser_id': app.uploaduser_id,
             'application_time': app.application_time,
             'audit_data': app.audit_data,
             'remarks': app.remarks,
@@ -250,7 +251,8 @@ def review_default_application():
 # 3.4 违约信息查询
 @main.route('/default_applications/search', methods=['GET'])
 def search_default_applications():
-    customer_name = request.args.get('customer_name')
+    data = request.get_json()
+    customer_name = data.get('customer_name')
 
     if not customer_name:
         return jsonify({'message': '请输入用户名称'}), 404
@@ -261,7 +263,7 @@ def search_default_applications():
             return jsonify({'message': '无该用户'}), 201
         else:
             # 创建查询
-            query = query.join(DefaultApplication, Customer, DefaultApplication.customer_id == Customer.customer_id)
+            query = db.session.query(DefaultApplication).join(Customer, DefaultApplication.customer_id == Customer.customer_id)
             #查询有没有违约信息
             query = query.filter(Customer.customer_name == customer_name)
             if query.count() == 0:
@@ -282,40 +284,147 @@ def search_default_applications():
                 } for app in applications]), 200
 
 # 3.5 违约重生
-@main.route('/default_rebirths', methods=['POST'])
+@main.route('/default_rebirths', methods=['GET','POST'])
 def rebirth_default():
-    data = request.get_json()
-    customer_id = data.get('customer_id')
-    default_id = data.get('default_id')
-    remarks = data.get('remarks')
+    if request.method == 'POST':
+        data = request.get_json()
+        customer_id = data.get('customer_id')
+        default_id = data.get('default_id')
+        remarks = data.get('remarks')
 
-    # 创建违约重生记录
-    rebirth = DefaultRebirth(
-        customer_id=customer_id,
-        default_id=default_id,
-        audit_status=0,  # 初始状态为"进行中"
-        remarks=remarks
-    )
-    db.session.add(rebirth)
-    db.session.commit()
+        #判断customer_id、default_id、remarks是否为空
+        if not customer_id or not default_id or not remarks:
+            return jsonify({'message': 'customer_id、default_id 和 remarks 是必填字段'}), 400
 
-    return jsonify({'message': '违约重生申请已创建'}), 201
+        # 创建违约重生记录
+        rebirth = DefaultRebirth(
+            customer_id=customer_id,
+            default_id=default_id,
+            audit_status=0,  # 初始状态为"进行中"
+            remarks=remarks
+        )
+        db.session.add(rebirth)
+        db.session.commit()
+
+        return jsonify({'message': '违约重生申请已创建'}), 201
+    else :
+        #查找此人所有已审核通过的违约记录
+        data = request.get_json()  # GET 请求数据应该从 request.get_json 获取
+        customer_id = data.get('customer_id')
+
+        if not customer_id:
+            return jsonify({'message': '请输入 customer_id'}), 404
+
+        try:
+            # 查找客户是否存在
+            customer_exists = Customer.query.get(customer_id)
+            if not customer_exists:
+                return jsonify({'message': '无该客户'}), 404
+
+            # 查找所有已审核通过的违约记录
+            approved_defaults = DefaultApplication.query.filter_by(
+                customer_id=customer_id, audit_status=1
+            ).all()
+            
+            if not approved_defaults:
+                return jsonify({'message': '该客户没有任何的违约记录'}), 200
+
+            return jsonify([{
+                'id': app.id,
+                'customer_id': app.customer_id,
+                'audit_status': app.audit_status,
+                'severity': app.severity,
+                'uploaduser_id': app.uploaduser_id,
+                'application_time': app.application_time,
+                'audit_data': app.audit_data,
+                'remarks': app.remarks,
+                'default_status': app.default_status
+            } for app in approved_defaults]), 200
+        except Exception as e:
+            return jsonify({'message': '查询失败', 'error': str(e)}), 500
 
 
 # 3.6 违约重生审核
-@main.route('/default_rebirths/<int:id>/review', methods=['PUT'])
-def review_default_rebirth(id):
-    data = request.get_json()
-    audit_status = data.get('audit_status')
+@main.route('/default_rebirths/review', methods=['GET','POST'])
+def review_default_rebirth():
+    if request.method == 'POST':
+        data = request.get_json()
+        id =data.get('id')
+        try:
+            audit_status = int(data.get('audit_status'))  # 强制转换为整数
+        except (TypeError, ValueError):
+            return jsonify({'message': '无效的审核状态'}), 400
 
-    # 查找违约重生记录
-    rebirth = DefaultRebirth.query.get_or_404(id)
 
-    # 更新审核状态
-    rebirth.audit_status = audit_status
-    db.session.commit()
+        # 校验审核状态的有效性
+        if audit_status not in [0, 1, 2]:  # 0 - 进行中, 1 - 通过, 2 - 驳回
+            return jsonify({'message': '无效的审核状态'}), 400
 
-    return jsonify({'message': '违约重生审核已更新'}), 200
+
+        # 查找违约重生记录
+        rebirth = DefaultRebirth.query.get_or_404(id)
+
+        try:
+            #更新审核状态
+            rebirth.audit_status = audit_status
+            db.session.commit()
+
+            if audit_status == 1:
+                #把该违约记录的default_status设置为“注销”
+                default_application = DefaultApplication.query.get(rebirth.default_id)
+                if default_application:
+                    default_application.default_status = 2  # 假设 2 表示 "注销"
+                    db.session.commit()
+                #除去这条记录查找违约用户是否还有违约记录  
+                # # 查找该用户是否还有其他未撤销的违约记录
+                existing_defaults = DefaultApplication.query.filter(
+                    DefaultApplication.customer_id == rebirth.customer_id,
+                    DefaultApplication.audit_status == 1,
+                    DefaultApplication.default_status != 2  # 过滤掉已撤销的违约记录
+                ).count()  
+
+                # 根据是否还有其他违约记录更新用户状态
+                customer = Customer.query.get(rebirth.customer_id)
+                if customer:
+                    if existing_defaults > 0:
+                        customer.status = 1  # 冻结
+                    else:
+                        customer.status = 0  # 正常
+                    db.session.commit()
+                #若有则用户状态继续冻结
+                #若没有则改为“正常”
+            elif audit_status == 2:
+                 # 如果审核状态为驳回，用户状态保持冻结
+                customer = Customer.query.get(rebirth.customer_id)
+                if customer:
+                    customer.status = 1  # 冻结
+                    db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'message': '审核处理失败', 'error': str(e)}), 500
+
+        return jsonify({'message': '违约重生审核已更新'}), 200
+    else:
+        #获取未审核的违约重生
+        try:
+            # 获取所有未审核的违约重生记录
+            pending_rebirths = DefaultRebirth.query.filter_by(audit_status=0).all()
+            if not pending_rebirths:
+                return jsonify({'message': '没有待审核的违约重生记录'}), 200
+
+            # 构造返回数据
+            results = [{
+                'id': rebirth.id,
+                'customer_id': rebirth.customer_id,
+                'default_id': rebirth.default_id,
+                'audit_status': rebirth.audit_status,
+                'remarks': rebirth.remarks,
+            } for rebirth in pending_rebirths]
+
+            return jsonify(results), 200
+        except Exception as e:
+            return jsonify({'message': '获取未审核违约重生记录失败', 'error': str(e)}), 500
+
 
 # 3.7 违约统计
 @main.route('/statistics/industry', methods=['GET'])
