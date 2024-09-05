@@ -274,6 +274,7 @@ def search_default_applications():
                 return jsonify([{
                     'id': app.id,
                     'customer_id': app.customer_id,
+                    'customer_name': customer_name,
                     'audit_status': app.audit_status,
                     'severity': app.severity,
                     'uploaduser_id': app.uploaduser_id,
@@ -469,3 +470,52 @@ def region_statistics():
 @main.route('/statistics', methods=['GET'])
 def statistics_page():
     return render_template('statistics.html')
+
+# 3.8 删除违约记录
+@main.route('/api/delete_default_application/<int:id>', methods=['DELETE'])
+def delete_default_application(id):
+    # 查询要删除的违约申请记录
+    application = DefaultApplication.query.get(id)
+    
+    if application is None:
+        return jsonify({'code': 404, 'message': 'Default application not found'}), 404
+
+    try:
+        # 删除记录
+        db.session.delete(application)
+        db.session.commit()
+        return jsonify({'code': 200, 'message': 'Default application deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': f'Error deleting default application: {str(e)}'}), 500
+
+ # 3.9 通过customer_name查询customer信息   
+@main.route('/api/search_customers', methods=['GET'])
+def search_customers():
+    # 从查询中获取 customer_name
+    customer_name = request.args.get('customer_name', '')
+
+    if not customer_name:
+        return jsonify({'code': 400, 'message': 'customer_name parameter is required'}), 400
+
+    # 使用filter进行查询
+    customers = Customer.query.filter(Customer.customer_name.ilike(f'%{customer_name}%')).all()
+
+    # 构造返回结果
+    if not customers:
+        return jsonify({'code': 404, 'message': 'No customers found'}), 404
+
+    customer_list = []
+    for customer in customers:
+        customer_list.append({
+            'customer_id': customer.customer_id,
+            'customer_name': customer.customer_name,
+            'username': customer.username,
+            'industry_classification': customer.industry_classification,
+            'region_classification': customer.region_classification,
+            'credit_rating': customer.credit_rating,
+            'group': customer.group,
+            'external_rating': customer.external_rating
+        })
+
+    return jsonify({'code': 200, 'customers': customer_list}), 200
