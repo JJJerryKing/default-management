@@ -124,11 +124,13 @@ def create_fake_default_rebirths(n):
             if rebirth_status == 1:
                 selected_default_app.default_status = 1
                 db.session.add(selected_default_app)
-                # 更新客户状态回为0
-                customer = Customer.query.get(selected_default_app.customer_id)
-                if customer:
-                    customer.status = 0
-                    db.session.add(customer)
+                # 确保该客户的所有同意的违约记录的状态都为1更新客户状态为0
+                all_default_apps = DefaultApplication.query.filter_by(customer_id=selected_default_app.customer_id).all()
+                if all(app.default_status == 1 for app in all_default_apps):
+                    customer = Customer.query.get(selected_default_app.customer_id)
+                    if customer:
+                        customer.status = 0
+                        db.session.add(customer)
 
         db.session.commit()
 
