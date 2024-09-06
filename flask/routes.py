@@ -499,7 +499,7 @@ def search_customers():
         return jsonify({'code': 400, 'message': 'customer_name parameter is required'}), 400
 
     # 使用filter进行查询
-    customers = Customer.query.filter(Customer.customer_name.ilike(f'%{customer_name}%')).all()
+    customers = Customer.query.filter(Customer.customer_name ==customer_name).all()
 
     # 构造返回结果
     if not customers:
