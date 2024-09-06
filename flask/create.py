@@ -24,7 +24,7 @@ def create_fake_customers(n):
                 customer_name=fake.company(),
                 username=fake.unique.random_int(min=100000, max=999999),
                 password=fake.password(),
-                status=fake.random_element([0, 1]),
+                status=0,
                 industry_classification=fake.random_element(industries),
                 region_classification=fake.random_element(provinces),
                 credit_rating=fake.random_element(credit_ratings),
@@ -51,6 +51,7 @@ def create_fake_default_reasons():
 
 def create_fake_default_applications(n):
     with app.app_context():
+        default_reasons = DefaultReason.query.all()
         customers = Customer.query.all()
         for _ in range(n):
             application_time = fake.date_time_this_year()
@@ -61,6 +62,9 @@ def create_fake_default_applications(n):
             if audit_status in [1, 2]:
                 # 如果审核状态为1或2，审核时间应晚于申请时间
                 audit_data = fake.date_time_between(start_date=application_time, end_date='+1y')
+            
+            # 随机选择违约原因
+            reason = fake.random_element(default_reasons).reason
 
             default_application = DefaultApplication(
                 customer_id=fake.random_element([c.customer_id for c in customers]),
@@ -69,32 +73,63 @@ def create_fake_default_applications(n):
                 uploaduser_id=fake.random_int(min=1, max=100),
                 application_time=application_time,
                 audit_data=audit_data,
-                remarks=fake.text(),
-                default_status=fake.random_element([0, 1])  # 默认为0，只有在重生成功时才会设为1
+                remarks=reason,  # 备注为违约原因
+                default_status=0  # 默认为0，只有在重生成功时才会设为1
             )
             db.session.add(default_application)
+            # 如果审核状态为同意，则将对应客户的状态改为1
+            if audit_status == 1:
+                customer = Customer.query.get(default_application.customer_id)
+                if customer:
+                    customer.status = 1
+                    db.session.add(customer)
         db.session.commit()
 
 def create_fake_default_rebirths(n):
+    rebirth_reasons = [
+        "正常结算后解除",
+        "在其他金融机构违约解除，或外部评级显示为非违约级别",
+        "计提比例小于设置界限",
+        "连续12个月内按时支付本金和利息",
+        "客户的还款意愿和还款能力明显好转，已偿付各项逾期本金、逾期利息和其他费用（包括罚息等），且连续12个月内按时支付本金、利息",
+        "导致违约的关联集团内其他发生违约的客户已经违约重生，解除关联成员的违约设定"
+    ]
     with app.app_context():
-        default_apps = DefaultApplication.query.all()
-        customers = Customer.query.all()
-        for _ in range(n):
-            default_application = fake.random_element(default_apps)
-            rebirth_status = fake.random_element([0, 1, 2])  # 0进行中，1同意，2拒绝
-            
-            # 只有在审核状态为1时，才会把违约记录标记为重生
-            if rebirth_status == 1:
-                default_application.default_status = 1
-                db.session.add(default_application)
+        # 获取所有已判定为违约的违约申请记录（审核状态为同意）
+        approved_default_apps = [app for app in DefaultApplication.query.all() if app.audit_status == 1]
 
+        # 获取所有客户
+        customers = Customer.query.all()
+
+        for _ in range(n):
+            if not approved_default_apps:
+                print("没有符合条件的违约申请记录进行重生。")
+                break
+
+            # 从已判定为违约的违约申请记录中随机选择一个
+            selected_default_app = fake.random_element(approved_default_apps)
+            
+            rebirth_status = fake.random_element([0, 1, 2])  # 0进行中，1同意，2拒绝
+
+            # 创建重生记录
             rebirth = DefaultRebirth(
-                customer_id=default_application.customer_id,
-                default_id=default_application.id,
+                customer_id=selected_default_app.customer_id,
+                default_id=selected_default_app.id,
                 audit_status=rebirth_status,
-                remarks=fake.text()
+                remarks=fake.random_element(rebirth_reasons)  # 备注为重生原因
             )
             db.session.add(rebirth)
+
+            # 如果重生审核状态为1（同意），则将对应违约记录的 default_status 更新为1（撤销）
+            if rebirth_status == 1:
+                selected_default_app.default_status = 1
+                db.session.add(selected_default_app)
+                # 更新客户状态回为0
+                customer = Customer.query.get(selected_default_app.customer_id)
+                if customer:
+                    customer.status = 0
+                    db.session.add(customer)
+
         db.session.commit()
 
 # 调用函数以生成数据
