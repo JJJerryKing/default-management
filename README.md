@@ -8,4 +8,4 @@ hdu short-semester2
 
 2.运行mysql/create_table.py建表
 
-3.运行随机生成数据
+3.运行flask/create.py随机生成数据
